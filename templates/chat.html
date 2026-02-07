@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}Тестовый чат (Core API Link){% endblock %}
+
+{% block content %}
+<div class="card shadow-sm" style="height: calc(100vh - 180px); display: flex; flex-direction: column; border-radius: 16px;">
+    <!-- Окно сообщений -->
+    <div id="chat-window" style="flex: 1; overflow-y: auto; padding: 25px; background: #f8fafc;">
+        <div class="message bot-message">
+            <div class="message-bubble shadow-sm">
+                Привет! Я подключен напрямую к <b>Core API</b>. Можете проверять логику здесь.
+            </div>
+        </div>
+    </div>
+    
+    <!-- Индикатор загрузки -->
+    <div id="loading-indicator" class="px-4 py-2 d-none">
+        <span class="badge bg-light text-primary border">
+            <span class="spinner-border spinner-border-sm me-2"></span> Мозг бота думает...
+        </span>
+    </div>
+
+    <!-- Поле ввода -->
+    <div class="chat-input-area" style="padding: 20px; border-top: 1px solid #e2e8f0; background: #fff; border-radius: 0 0 16px 16px;">
+        <div class="input-group">
+            <input type="text" id="user-input" class="form-control border-2" placeholder="Спросите что-нибудь..." 
+                   style="border-radius: 12px 0 0 12px; padding: 14px; border-right: none;">
+            <button class="btn btn-primary px-4" onclick="sendMessage()" style="border-radius: 0 12px 12px 0;">
+                <i class="bi bi-send-fill"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+.message { margin-bottom: 20px; display: flex; flex-direction: column; animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.bot-message { align-items: flex-start; }
+.user-message { align-items: flex-end; }
+
+.message-bubble { 
+    max-width: 80%; padding: 14px 20px; border-radius: 20px; 
+    font-size: 1rem; line-height: 1.5; position: relative;
+}
+.bot-message .message-bubble { background: white; color: #1e293b; border-bottom-left-radius: 4px; border: 1px solid #e2e8f0; }
+.user-message .message-bubble { background: var(--accent); color: white; border-bottom-right-radius: 4px; }
+
+.chat-img { max-width: 100%; border-radius: 12px; margin-top: 8px; cursor: zoom-in; transition: 0.2s; }
+.chat-img:hover { opacity: 0.9; }
+
+.btn-choice { 
+    margin-top: 8px; margin-right: 5px; border-radius: 10px; 
+    font-size: 0.9rem; font-weight: 600; padding: 8px 16px;
+}
+</style>
+
+<script>
+async function sendMessage(overrideText = null, isCallback = false) {
+    const input = document.getElementById('user-input');
+    const text = overrideText || input.value.trim();
+    if (!text) return;
+
+    // Не выводим в чат технические callback_data (содержащие двоеточие)
+    if (!isCallback || !text.includes(':')) {
+        appendMessage('user', text);
+    }
+    
+    if (!overrideText) input.value = '';
+    
+    const loading = document.getElementById('loading-indicator');
+    loading.classList.remove('d-none');
+
+    try {
+        const response = await fetch('/chat/ask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: text })
+        });
+        
+        const responses = await response.json();
+
+        if (Array.isArray(responses)) {
+            responses.forEach(resp => {
+                try {
+                    renderResponse(resp);
+                } catch (err) {
+                    console.error("Ошибка отрисовки конкретного сообщения:", err);
+                }
+            });
+        }
+    } catch (e) {
+        console.error("Ошибка запроса:", e);
+        appendMessage('bot', '❌ Ошибка сети или Core API не отвечает.');
+    } finally {
+        // ЭТОТ БЛОК ВЫПОЛНИТСЯ ВСЕГДА
+        loading.classList.add('d-none');
+    }
+}
+
+function renderResponse(resp) {
+    let msgDiv = null;
+    const type = resp.type;
+    
+    if (type === 'text' || type === 'clarification') {
+        msgDiv = appendMessage('bot', resp.content);
+    } 
+    else if (type === 'image' || type === 'photo') {
+        msgDiv = appendImage('bot', resp.content);
+    } 
+    else if (type === 'map') {
+        // Убираем ручное создание ссылки здесь, так как она придет в объекте кнопок
+        let mapHtml = `📍 <b>Карта:</b> ${resp.content || ''}<br>`;
+        if (resp.static_map) mapHtml += `<img src="${resp.static_map}" class="chat-img shadow-sm mb-2">`;
+        msgDiv = appendMessage('bot', mapHtml);
+    }
+
+    // --- УЛУЧШЕННЫЙ БЛОК КНОПОК ---
+    const buttons = resp.buttons || (resp.reply_markup ? resp.reply_markup.inline_keyboard : null);
+    
+    if (buttons && buttons.length > 0 && msgDiv) {
+        const btnContainer = document.createElement('div');
+        btnContainer.className = 'mt-3 d-flex flex-wrap gap-2';
+        
+        buttons.flat().forEach(btn => {
+            // Если у кнопки есть URL — это ссылка
+            if (btn.url) {
+                const link = document.createElement('a');
+                link.href = btn.url;
+                link.target = "_blank"; // Открывать в новой вкладке
+                link.className = 'btn btn-sm btn-success shadow-sm px-3 py-2'; // Зеленый цвет для ссылок
+                link.style.borderRadius = '10px';
+                link.style.textDecoration = 'none';
+                link.innerHTML = `<i class="bi bi-geo-alt-fill me-1"></i> ${btn.text}`;
+                btnContainer.appendChild(link);
+            } 
+            // Иначе — это обычная кнопка (уточнение или команда)
+            else {
+                const b = document.createElement('button');
+                b.className = 'btn btn-sm btn-outline-primary shadow-sm px-3 py-2';
+                b.style.borderRadius = '10px';
+                b.innerText = btn.text;
+                b.onclick = () => {
+                    btnContainer.remove(); 
+                    sendMessage(btn.callback_data || btn.text, true);
+                };
+                btnContainer.appendChild(b);
+            }
+        });
+        
+        msgDiv.querySelector('.message-bubble').appendChild(btnContainer);
+    }
+}
+
+function appendMessage(sender, text) {
+    const chat = document.getElementById('chat-window');
+    const div = document.createElement('div');
+    div.className = `message ${sender}-message`;
+    div.innerHTML = `<div class="message-bubble shadow-sm">${text}</div>`;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return div; // Важно!
+}
+
+function appendImage(sender, url) {
+    const chat = document.getElementById('chat-window');
+    const div = document.createElement('div');
+    div.className = `message ${sender}-message`;
+    div.innerHTML = `<div class="message-bubble shadow-sm"><img src="${url}" class="chat-img" onerror="this.src='https://placehold.co/400x300?text=Ошибка+загрузки+фото'"></div>`;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return div; // Важно!
+}
+
+document.getElementById('user-input').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendMessage();
+});
+</script>
+{% endblock %}

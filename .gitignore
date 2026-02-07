@@ -1,0 +1,35 @@
+# Файл: /var/www/EcoBotProject/.gitignore
+
+# 1. Виртуальные окружения (venv)
+**/venv/
+**/.venv/
+
+# 2. Секретные файлы .env
+**/.env
+
+# 3. Кэш Python
+**/__pycache__/
+**/*.pyc
+
+# 4. Лог-файлы
+*.log
+
+# 5. Файлы пользовательских настроек (содержат ID пользователей)
+**/user_settings.json
+**/user_settings.json.lock
+
+# 6. Модели Rasa
+RasaProject/models/*.tar.gz
+**/.rasa/
+
+# 7. Индексы векторного поиска
+faiss_index_path/
+
+# 8. Специфичные для IDE/редакторов файлы
+.idea/
+.vscode/
+.pytest_cache/
+
+**/data/geo_place_synonyms.yml
+**/data/lookup/
+.agent/

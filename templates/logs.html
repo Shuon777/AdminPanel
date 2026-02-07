@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Журнал ошибок{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+    <p style="color: var(--text-secondary); font-size: 1.1rem; margin: 0; font-weight: 500;">Анализ сбоев NLP-модели и системных ошибок</p>
+    <a href="/logs/stats" class="btn-stats">
+        <i class="bi bi-bar-chart-fill me-2"></i> Статистика
+    </a>
+</div>
+
+<div class="card">
+    <table class="table">
+        <thead>
+            <tr>
+                <th class="col-time">Дата и время</th>
+                <th class="col-query">Запрос пользователя</th>
+                <th class="col-error">Текст ошибки</th>
+                <th class="col-action">Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for err in errors %}
+            <tr>
+                <td class="col-time">
+                    {{ err.created_at.strftime('%d.%m.%Y') }}<br>
+                    <span style="color: var(--text-secondary); font-size: 0.85rem;">{{ err.created_at.strftime('%H:%M:%S') }}</span>
+                </td>
+                <td class="col-query">{{ err.user_query or '—' }}</td>
+                <td class="col-error">
+                    <div style="max-height: 50px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">
+                        {{ err.error_message }}
+                    </div>
+                </td>
+                <td class="col-action">
+                    <button class="btn-details" onclick='showDetails({{ err.id }}, {{ err.context | tojson }}, {{ err.additional_info | tojson }}, {{ err.error_message | tojson }})'>
+                        Детали
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Модалка -->
+<div class="modal fade" id="logModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content shadow-lg">
+            <div class="modal-header px-4 py-3">
+                <h5 class="modal-title" style="font-weight: 800;">Ошибка <span style="color: var(--accent);">#<span id="m-id"></span></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="mb-4">
+                    <span class="badge-label">Полный текст ошибки</span>
+                    <div id="m-error-full" style="background: #fff5f5; padding: 20px; border-radius: 12px; border: 1px solid #feb2b2; color: #c53030; font-weight: bold; font-size: 1rem;"></div>
+                </div>
+                <div class="row g-4">
+                    <div class="col-lg-6">
+                        <span class="badge-label">Контекст (Context)</span>
+                        <pre id="m-context"></pre>
+                    </div>
+                    <div class="col-lg-6">
+                        <span class="badge-label">Доп. информация (Info)</span>
+                        <pre id="m-info"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function cleanText(input) {
+    if (!input) return "—";
+    let str = typeof input === 'string' ? input : JSON.stringify(input, null, 4);
+    
+    // 1. Декодируем Юникод (\u0435 -> е)
+    str = str.replace(/\\u([0-9a-fA-F]{4})/g, (match, grp) => {
+        return String.fromCharCode(parseInt(grp, 16));
+    });
+
+    // 2. Убираем лишние обратные слеши (\Я -> Я)
+    str = str.replace(/\\(?![ntr])/g, '');
+
+    // 3. Убираем кавычки по краям
+    return str.replace(/^"|"$/g, '');
+}
+
+function showDetails(id, ctx, info, fullError) {
+    document.getElementById('m-id').innerText = id;
+    document.getElementById('m-context').innerText = cleanText(ctx);
+    document.getElementById('m-info').innerText = cleanText(info);
+    document.getElementById('m-error-full').innerText = cleanText(fullError);
+    new bootstrap.Modal(document.getElementById('logModal')).show();
+}
+</script>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Обзор системы{% endblock %}
+
+{% block content %}
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
+    <!-- Карточка статуса -->
+    <div class="card" style="padding: 24px;" id="dash-status-card">
+        <p class="small fw-bold text-muted text-uppercase" style="margin-bottom: 8px;">Состояние бота</p>
+        
+        <!-- Добавили id="dash-status-text" -->
+        <h2 class="fw-bold" id="dash-status-text" style="margin-bottom: 8px;">
+            {{ 'Активен' if bot_online else 'Не в сети' }}
+        </h2>
+        
+        <!-- Добавили id="dash-status-desc" -->
+        <p class="text-secondary m-0" id="dash-status-desc" style="font-size: 0.9rem;">
+            {% if bot_online %}Последний сигнал получен менее 15 мин. назад{% else %}Бот давно не выходил на связь{% endif %}
+        </p>
+    </div>
+
+    <!-- Карточка ошибок (заглушка) -->
+    <div class="card" style="padding: 24px;">
+        <p class="small fw-bold text-muted text-uppercase" style="margin-bottom: 8px;">Ошибок за сутки</p>
+        <h2 class="fw-bold text-danger" style="margin-bottom: 8px;">12</h2>
+        <p class="text-secondary m-0" style="font-size: 0.9rem;">Требуют вашего внимания</p>
+    </div>
+</div>
+{% endblock %}

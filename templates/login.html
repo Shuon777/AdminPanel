@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Вход в ЭкоБайкал Админ</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #f1f5f9; height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .login-card { width: 400px; padding: 40px; border-radius: 24px; background: white; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h2 class="fw-bold mb-4">🌿 Вход</h2>
+        <form action="/login" method="post">
+            <div class="mb-3">
+                <label class="form-label text-muted small fw-bold">ВАШЕ ИМЯ (ДЛЯ КОНТЕКСТА)</label>
+                <input type="text" name="username" class="form-control form-control-lg" placeholder="Напр: alex" required>
+            </div>
+            <button type="submit" class="btn btn-primary w-100 btn-lg shadow">Войти в панель</button>
+        </form>
+    </div>
+</body>
+</html>

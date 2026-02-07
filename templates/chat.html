@@ -2,6 +2,81 @@
 {% block title %}Тестовый чат (Core API Link){% endblock %}
 
 {% block content %}
+<style>
+    /* Контейнер для всего дебаг-сообщения */
+    .system-message-container {
+        width: 100%;
+        margin: 20px 0;
+        padding: 0;
+    }
+
+    /* Заголовок над блоком кода */
+    .debug-header {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #64748b; /* Нейтральный серый */
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+
+    /* Сам блок с кодом */
+    .debug-block {
+        /* Фон: очень темный нейтральный серый (как в IDE) */
+        background-color: #111827 !important; 
+        /* Текст: мягкий белый/светло-серый (высокий контраст) */
+        color: #f1f5f9 !important; 
+        
+        padding: 20px !important;
+        border-radius: 12px !important;
+        border: 1px solid #374151 !important;
+        
+        /* Шрифт: увеличили до 1rem (16px) и добавили четкие Mono-стеки */
+        font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace !important;
+        font-size: 0.95rem !important; 
+        line-height: 1.6 !important;
+        
+        white-space: pre-wrap !important;
+        word-break: break-all !important;
+        margin: 0 !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Небольшая подсветка для ключей в JSON (опционально через JS замену) */
+    .debug-block b {
+        color: #10b981; /* Приятный зеленый для акцентов */
+        font-weight: normal;
+    }
+
+    /* Пузыри обычных сообщений для сравнения (чтобы не казались мелкими) */
+    .message-bubble {
+        font-size: 1rem;
+    }
+</style>
+<div class="card shadow-sm mb-3" style="border-radius: 16px;">
+    <div class="card-body d-flex align-items-center justify-content-between py-2 px-4 bg-light" style="border-radius: 16px;">
+        <div class="d-flex gap-4">
+            <!-- Режим -->
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="setting-mode" checked>
+                <label class="form-check-label fw-bold" for="setting-mode">GigaChat Mode</label>
+            </div>
+            <!-- Debug -->
+            <div class="form-check form-switch text-danger">
+                <input class="form-check-input" type="checkbox" id="setting-debug">
+                <label class="form-check-label fw-bold" for="setting-debug">🐞 Debug Mode</label>
+            </div>
+        </div>
+        <div>
+            <span class="text-muted small">ID: <b>{{ request.session.user_id }}</b></span>
+            <a href="/logout" class="btn btn-sm btn-link text-danger ms-2">Выйти</a>
+        </div>
+    </div>
+</div>
+
 <div class="card shadow-sm" style="height: calc(100vh - 180px); display: flex; flex-direction: column; border-radius: 16px;">
     <!-- Окно сообщений -->
     <div id="chat-window" style="flex: 1; overflow-y: auto; padding: 25px; background: #f8fafc;">
@@ -70,11 +145,20 @@ async function sendMessage(overrideText = null, isCallback = false) {
     const loading = document.getElementById('loading-indicator');
     loading.classList.remove('d-none');
 
+    const chatSettings = {
+        mode: document.getElementById('setting-mode').checked ? 'gigachat' : 'rasa',
+        debug_mode: document.getElementById('setting-debug').checked,
+        gigachat_fallback: true // Можно тоже вынести в чекбокс
+    };
+
     try {
         const response = await fetch('/chat/ask', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: text })
+            body: JSON.stringify({ 
+                text: text,
+                settings: chatSettings // Шлем настройки
+            })
         });
         
         const responses = await response.json();
@@ -92,7 +176,6 @@ async function sendMessage(overrideText = null, isCallback = false) {
         console.error("Ошибка запроса:", e);
         appendMessage('bot', '❌ Ошибка сети или Core API не отвечает.');
     } finally {
-        // ЭТОТ БЛОК ВЫПОЛНИТСЯ ВСЕГДА
         loading.classList.add('d-none');
     }
 }
@@ -100,8 +183,40 @@ async function sendMessage(overrideText = null, isCallback = false) {
 function renderResponse(resp) {
     let msgDiv = null;
     const type = resp.type;
-    
-    if (type === 'text' || type === 'clarification') {
+    const chat = document.getElementById('chat-window');
+
+    if (type === 'debug') {
+        const div = document.createElement('div');
+        div.className = 'message system-message';
+        
+        let rawContent = resp.content;
+        let displayContent = "";
+
+        // 1. Проверяем, не чистый ли это JSON (как первое сообщение)
+        try {
+            const obj = JSON.parse(rawContent);
+            displayContent = JSON.stringify(obj, null, 2);
+        } catch (e) {
+            // 2. Если не чистый JSON, значит это "грязная" строка (API Request)
+            // Попробуем сделать её чище: уберем Markdown-звездочки и обратные тики
+            displayContent = rawContent
+                .replace(/\*\*/g, '')      // Убираем **
+                .replace(/`/g, '')         // Убираем `
+                .replace(/'/g, '"')        // Заменяем одинарные кавычки на двойные (для вида)
+                .replace(/None/g, 'null')  // Python -> JSON
+                .replace(/True/g, 'true')
+                .replace(/False/g, 'false');
+        }
+
+        div.innerHTML = `
+            <div class="debug-header"><i class="bi bi-terminal-fill"></i> System Debug Log</div>
+            <pre class="debug-block">${displayContent}</pre>
+        `;
+        chat.appendChild(div);
+        chat.scrollTop = chat.scrollHeight;
+        return div;
+    }
+    else if (type === 'text' || type === 'clarification') {
         msgDiv = appendMessage('bot', resp.content);
     } 
     else if (type === 'image' || type === 'photo') {

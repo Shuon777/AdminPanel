@@ -9,6 +9,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import func
+from urllib.parse import urlparse
 from datetime import datetime, timedelta, timezone
 
 from database import get_db
@@ -19,22 +21,36 @@ from dotenv import load_dotenv
 app = FastAPI()
 load_dotenv()
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/admin/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 hb = BotHeartbeat(host='localhost', port=6379, db=2)
 app.add_middleware(SessionMiddleware, secret_key="super-secret-key-for-admins")
 BOT_CORE_URL = os.getenv("BOT_CORE_URL")
+parsed_url = urlparse(BOT_CORE_URL)
+CORE_API_BASE = f"{parsed_url.scheme}://{parsed_url.netloc}" # Получится http://localhost:5001
 
 async def is_bot_online_redis():
     return await hb.is_alive()
+
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
     if not request.session.get("user_id"):
         return RedirectResponse(url="/login")
+
     bot_online = await is_bot_online_redis()
+
+    # --- Считаем ошибки за последние 24 часа ---
+    time_24h_ago = datetime.now(timezone.utc) - timedelta(hours=24)
+    query = select(func.count(ErrorLog.id)).where(ErrorLog.created_at >= time_24h_ago)
+    result = await db.execute(query)
+    errors_24h = result.scalar() or 0  # Получаем число (или 0, если пусто)
+    # -------------------------------------------
     return templates.TemplateResponse("dashboard.html", {
-        "request": request, "active_page": "dashboard", "bot_online": bot_online
+        "request": request,
+        "active_page": "dashboard",
+        "bot_online": bot_online,
+        "errors_24h": errors_24h  # <--- Передаем число в шаблон
     })
 
 @app.get("/login", response_class=HTMLResponse)
@@ -118,5 +134,56 @@ async def proxy_to_core(request: Request, data: dict = Body(...)):
         except Exception as e:
             return [{"type": "text", "content": f"❌ Ошибка Core API: {str(e)}"}]
 
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    if not request.session.get("user_id"):
+        return RedirectResponse(url="/login")
+
+    bot_online = await is_bot_online_redis()
+    prompts = {}
+    config = {}
+
+    # Стучимся в Core API бота, чтобы забрать текущие промпты и конфиг
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            p_resp = await client.get(f"{CORE_API_BASE}/prompts")
+            if p_resp.status_code == 200:
+                prompts = p_resp.json()
+
+            c_resp = await client.get(f"{CORE_API_BASE}/config")
+            if c_resp.status_code == 200:
+                config = c_resp.json()
+        except Exception as e:
+            print(f"Ошибка загрузки настроек из бота: {e}")
+
+    return templates.TemplateResponse("settings.html", {
+        "request": request,
+        "active_page": "settings",
+        "bot_online": bot_online,
+        "prompts": prompts,
+        "config": config
+    })
+
+
+@app.post("/settings/prompts")
+async def save_prompts(request: Request, data: dict = Body(...)):
+    """Отправляем измененные промпты обратно в бота"""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(f"{CORE_API_BASE}/prompts", json=data)
+        if resp.status_code == 200:
+            return resp.json()
+        raise HTTPException(status_code=500, detail="Ошибка сохранения промптов")
+
+
+@app.post("/settings/config")
+async def save_config(request: Request, data: dict = Body(...)):
+    """Отправляем измененный конфиг (.env) обратно в бота"""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(f"{CORE_API_BASE}/config", json=data)
+        if resp.status_code == 200:
+            return resp.json()
+        raise HTTPException(status_code=500, detail="Ошибка сохранения конфига")
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

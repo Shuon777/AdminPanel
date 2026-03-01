@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}⚙️ Настройки системы{% endblock %}
+
+{% block content %}
+<!-- Словарь с описаниями промптов -->
+{% set prompt_descriptions = {
+    'classifications_actions_part_of_prompt.txt': 'Список возможных действий (интентов), которые LLM должна выбрать на основе запроса пользователя.',
+    'classifications_entities_part_of_prompt.txt': 'Справочник категорий и подкатегорий (Flora, Fauna, Infrastructure), чтобы LLM правильно классифицировала объекты.',
+    'examples_entity.txt': 'Сложные примеры названий растений и животных для того, чтобы нейросеть лучше понимала границы названий.',
+    'examples_for_prompt.txt': 'Примеры логики (Few-Shot) в формате "Запрос пользователя -> Идеальный JSON ответ", обучающие LLM думать правильно.'
+} %}
+
+<div class="card shadow-sm" style="border-radius: 16px; min-height: 70vh;">
+    <div class="card-header bg-white" style="border-bottom: 1px solid #e2e8f0; border-radius: 16px 16px 0 0; padding: 20px 30px;">
+        <ul class="nav nav-tabs card-header-tabs" id="settingsTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active fw-bold text-dark" id="prompts-tab" data-bs-toggle="tab" data-bs-target="#prompts" type="button" role="tab">🧠 Промпты (LLM)</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link fw-bold text-dark" id="config-tab" data-bs-toggle="tab" data-bs-target="#config" type="button" role="tab">🔧 Конфигурация (.env)</button>
+            </li>
+        </ul>
+    </div>
+    
+    <div class="card-body p-4 tab-content" id="settingsTabsContent">
+        
+        <!-- Вкладка Промптов -->
+        <div class="tab-pane fade show active" id="prompts" role="tabpanel">
+            <p class="text-muted mb-4">Здесь вы можете редактировать инструкции для нейросети. Изменения применяются <b>мгновенно</b>.</p>
+            
+            <form id="promptsForm">
+                {% for filename, content in prompts.items() %}
+                <div class="mb-4">
+                    <label class="form-label fw-bold text-primary d-flex align-items-center gap-2">
+                        {{ filename }}
+                        <!-- Добавляем иконку вопроса с тултипом -->
+                        {% if filename in prompt_descriptions %}
+                        <i class="bi bi-question-circle text-muted" 
+                           data-bs-toggle="tooltip" 
+                           data-bs-placement="right" 
+                           title="{{ prompt_descriptions[filename] }}" 
+                           style="cursor: help; font-size: 1.1rem; color: #94a3b8 !important;"></i>
+                        {% endif %}
+                    </label>
+                    <textarea class="form-control" name="{{ filename }}" rows="8" style="font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; background: #f8fafc; border: 1px solid #cbd5e1;">{{ content }}</textarea>
+                </div>
+                {% endfor %}
+                <button type="button" class="btn btn-primary px-5 py-2 fw-bold" onclick="saveSettings('prompts')">💾 Сохранить промпты</button>
+            </form>
+        </div>
+
+        <!-- Вкладка Конфигов -->
+        <div class="tab-pane fade" id="config" role="tabpanel">
+            <div class="alert alert-warning mb-4">
+                <i class="bi bi-exclamation-triangle-fill"></i> Изменение некоторых ключей (например, <b>BOT_TOKEN</b>) потребует жесткой перезагрузки контейнера бота.
+            </div>
+            
+            <form id="configForm">
+                <div class="row">
+                    {% for key, value in config.items() %}
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold text-secondary small">{{ key }}</label>
+                        <input type="text" class="form-control" name="{{ key }}" value="{{ value }}">
+                    </div>
+                    {% endfor %}
+                </div>
+                <button type="button" class="btn btn-primary px-5 py-2 fw-bold mt-3" onclick="saveSettings('config')">💾 Сохранить конфиг</button>
+            </form>
+        </div>
+
+    </div>
+</div>
+
+<!-- Toast-уведомление -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+  <div id="liveToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
+    <div class="d-flex">
+      <div class="toast-body fw-bold" id="toastMessage">Сохранено успешно!</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Оживляем всплывающие подсказки (тултипы) от Bootstrap
+document.addEventListener("DOMContentLoaded", function() {
+    var tooltipTriggerList =[].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+});
+
+async function saveSettings(type) {
+    const form = document.getElementById(type + 'Form');
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData.entries());
+
+    try {
+        const response = await fetch(`/admin/settings/${type}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            document.getElementById('toastMessage').innerText = result.message || "Успешно сохранено!";
+            document.getElementById('liveToast').className = "toast align-items-center text-bg-success border-0";
+            const toast = new bootstrap.Toast(document.getElementById('liveToast'));
+            toast.show();
+        } else {
+            throw new Error(result.detail || "Ошибка сохранения");
+        }
+    } catch (e) {
+        document.getElementById('toastMessage').innerText = "❌ " + e.message;
+        document.getElementById('liveToast').className = "toast align-items-center text-bg-danger border-0";
+        const toast = new bootstrap.Toast(document.getElementById('liveToast'));
+        toast.show();
+    }
+}
+</script>
+{% endblock %}

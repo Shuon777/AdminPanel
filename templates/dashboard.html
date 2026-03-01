@@ -19,11 +19,22 @@
         </p>
     </div>
 
-    <!-- Карточка ошибок (заглушка) -->
+    <!-- Карточка ошибок -->
     <div class="card" style="padding: 24px;">
         <p class="small fw-bold text-muted text-uppercase" style="margin-bottom: 8px;">Ошибок за сутки</p>
-        <h2 class="fw-bold text-danger" style="margin-bottom: 8px;">12</h2>
-        <p class="text-secondary m-0" style="font-size: 0.9rem;">Требуют вашего внимания</p>
+
+        <!-- ДИНАМИЧЕСКИЙ ЦВЕТ: Зеленый если 0, Красный если больше -->
+        <h2 class="fw-bold {% if errors_24h == 0 %}text-success{% else %}text-danger{% endif %}" style="margin-bottom: 8px;">
+            {{ errors_24h }}
+        </h2>
+
+        <p class="text-secondary m-0" style="font-size: 0.9rem;">
+            {% if errors_24h > 0 %}
+                Требуют вашего внимания
+            {% else %}
+                Система работает стабильно
+            {% endif %}
+        </p>
     </div>
 </div>
 {% endblock %}

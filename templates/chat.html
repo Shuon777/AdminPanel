@@ -72,7 +72,7 @@
         </div>
         <div>
             <span class="text-muted small">ID: <b>{{ request.session.user_id }}</b></span>
-            <a href="/logout" class="btn btn-sm btn-link text-danger ms-2">Выйти</a>
+            <a href="/admin/logout" class="btn btn-sm btn-link text-danger ms-2">Выйти</a>
         </div>
     </div>
 </div>
@@ -152,7 +152,7 @@ async function sendMessage(overrideText = null, isCallback = false) {
     };
 
     try {
-        const response = await fetch('/chat/ask', {
+        const response = await fetch('/admin/chat/ask', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 

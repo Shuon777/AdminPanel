@@ -189,28 +189,16 @@ function renderResponse(resp) {
         const div = document.createElement('div');
         div.className = 'message system-message';
         
-        let rawContent = resp.content;
-        let displayContent = "";
-
-        // 1. Проверяем, не чистый ли это JSON (как первое сообщение)
-        try {
-            const obj = JSON.parse(rawContent);
-            displayContent = JSON.stringify(obj, null, 2);
-        } catch (e) {
-            // 2. Если не чистый JSON, значит это "грязная" строка (API Request)
-            // Попробуем сделать её чище: уберем Markdown-звездочки и обратные тики
-            displayContent = rawContent
-                .replace(/\*\*/g, '')      // Убираем **
-                .replace(/`/g, '')         // Убираем `
-                .replace(/'/g, '"')        // Заменяем одинарные кавычки на двойные (для вида)
-                .replace(/None/g, 'null')  // Python -> JSON
-                .replace(/True/g, 'true')
-                .replace(/False/g, 'false');
-        }
-
+        // Так как бот теперь присылает склеенную красивую строку с <b> тегами и отступами,
+        // нам не нужно пытаться парсить её как JSON.
+        // Мы просто подсветим то, что внутри обратных кавычек ` ` (URL и Payload)
+        let displayContent = resp.content
+            .replace(/`([^`]+)`/g, '<span style="color: #34d399;">$1</span>') // светло-зеленый цвет для кода/URL
+            .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>'); // на всякий случай, если где-то остался markdown **
+            
         div.innerHTML = `
             <div class="debug-header"><i class="bi bi-terminal-fill"></i> System Debug Log</div>
-            <pre class="debug-block">${displayContent}</pre>
+            <pre class="debug-block" style="white-space: pre-wrap;">${displayContent}</pre>
         `;
         chat.appendChild(div);
         chat.scrollTop = chat.scrollHeight;

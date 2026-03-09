@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Новый объект (ОФФ){% endblock %}
+
+{% block content %}
+<div class="card shadow-sm" style="border-radius: 16px; max-width: 800px;">
+    <div class="card-body p-5">
+        <h4 class="fw-bold mb-4 text-primary">Создание биологического объекта</h4>
+        
+        <form action="/admin/biological/save" method="post">
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-secondary small">РУССКОЕ НАЗВАНИЕ *</label>
+                    <input type="text" class="form-control form-control-lg" name="common_name_ru" placeholder="Напр: Байкальская нерпа" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-secondary small">ЛАТИНСКОЕ НАЗВАНИЕ</label>
+                    <input type="text" class="form-control form-control-lg" name="scientific_name" placeholder="Напр: Pusa sibirica">
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-secondary small">КАТЕГОРИЯ (ТИП) *</label>
+                    <select class="form-select form-select-lg" name="type" required>
+                        <option value="Объект флоры">🌿 Флора (Растения)</option>
+                        <option value="Объект фауны">🐾 Фауна (Животные)</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-secondary small">ОХРАННЫЙ СТАТУС</label>
+                    <input type="text" class="form-control form-control-lg" name="status" placeholder="Напр: Красная книга Иркутской области">
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="form-label fw-bold text-secondary small">КРАТКАЯ СПРАВКА</label>
+                <textarea class="form-control" name="description" rows="4" placeholder="Базовое описание объекта..."></textarea>
+                <div class="form-text text-muted mt-2">
+                    <i class="bi bi-info-circle"></i> Подробные энциклопедические статьи и фотографии вы сможете привязать к объекту на следующем шаге.
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center mt-5 pt-3 border-top">
+                <a href="/admin/biological" class="btn btn-light text-secondary fw-bold px-4 py-2">Отмена</a>
+                <button type="submit" class="btn btn-primary px-5 py-2 fw-bold" style="background: var(--accent);">
+                    💾 Сохранить и продолжить
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

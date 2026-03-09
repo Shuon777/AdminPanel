@@ -1,6 +1,7 @@
 import os
 import httpx
 import uvicorn
+import requests
 
 from fastapi import FastAPI, Request, Depends, Body, Form, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -9,12 +10,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func
+from sqlalchemy import func, delete
 from urllib.parse import urlparse
 from datetime import datetime, timedelta, timezone
 
 from database import get_db
-from models import ErrorLog
+from models import ErrorLog, BiologicalEntity, TextContent, ImageContent, EntityRelation, EntityIdentifier, EntityIdentifierLink
 from heartbeat import BotHeartbeat
 from dotenv import load_dotenv
 
@@ -184,6 +185,273 @@ async def save_config(request: Request, data: dict = Body(...)):
         if resp.status_code == 200:
             return resp.json()
         raise HTTPException(status_code=500, detail="Ошибка сохранения конфига")
+
+# ==========================================
+# CMS: ФЛОРА И ФАУНА (MVP)
+# ==========================================
+
+@app.get("/biological", response_class=HTMLResponse)
+async def biological_list(request: Request, db: AsyncSession = Depends(get_db)):
+    """Вывод списка всех биологических объектов"""
+    if not request.session.get("user_id"):
+        return RedirectResponse(url="/login")
+        
+    bot_online = await is_bot_online_redis()
+    
+    # Получаем объекты из БД, отсортированные по убыванию ID
+    query = select(BiologicalEntity).order_by(BiologicalEntity.id.desc())
+    result = await db.execute(query)
+    entities = result.scalars().all()
+    
+    return templates.TemplateResponse("biological_list.html", {
+        "request": request, 
+        "active_page": "biological", 
+        "bot_online": bot_online, 
+        "entities": entities
+    })
+
+@app.get("/biological/new", response_class=HTMLResponse)
+async def biological_new(request: Request):
+    """Страница с формой создания нового объекта"""
+    if not request.session.get("user_id"):
+        return RedirectResponse(url="/login")
+        
+    bot_online = await is_bot_online_redis()
+    return templates.TemplateResponse("biological_form.html", {
+        "request": request, 
+        "active_page": "biological", 
+        "bot_online": bot_online, 
+        "entity": None # Передаем None, так как это создание, а не редактирование
+    })
+
+@app.post("/biological/save")
+async def biological_save(
+    request: Request, 
+    common_name_ru: str = Form(...),
+    scientific_name: str = Form(""),
+    type: str = Form(...),
+    status: str = Form(""),
+    description: str = Form(""),
+    db: AsyncSession = Depends(get_db)
+):
+    """Сохранение базового <Описания объекта> в базу"""
+    if not request.session.get("user_id"):
+        return RedirectResponse(url="/login")
+        
+    # 1. Создаем сам объект (ОФФ)
+    new_entity = BiologicalEntity(
+        common_name_ru=common_name_ru,
+        scientific_name=scientific_name,
+        type=type,
+        status=status,
+        description=description,
+        feature_data={} # Пустой JSONB, сюда потом лягут <Признаки ресурса>
+    )
+    db.add(new_entity)
+    await db.commit()
+    
+    # После создания возвращаем пользователя к списку
+    return RedirectResponse(url=f"/biological/{new_entity.id}", status_code=303)
+
+@app.post("/biological/{entity_id}/add_text")
+async def biological_add_text(
+    request: Request,
+    entity_id: int,
+    title: str = Form(...),
+    content: str = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    РЕАЛИЗАЦИЯ ИНФОРМАЦИОННОЙ МОДЕЛИ:
+    Сборка <Ресурса> = <Объект> + <Модальность> + <Связь>
+    """
+    if not request.session.get("user_id"):
+        return RedirectResponse(url="/login")
+        
+    # 1. Создаем <Описание модальности> (Текст)
+    new_text = TextContent(
+        title=title, 
+        content=content, 
+        feature_data={}
+    )
+    db.add(new_text)
+    await db.flush() # Получаем ID нового текста (new_text.id) без полного коммита транзакции
+    
+    # 2. Создаем связующее звено
+    relation = EntityRelation(
+        source_id=new_text.id,
+        source_type="text_content",
+        target_id=entity_id,
+        target_type="biological_entity",
+        relation_type="описание объекта"
+    )
+    db.add(relation)
+    await db.commit()
+    
+    return RedirectResponse(url=f"/biological/{entity_id}", status_code=303)
+
+@app.get("/biological/{entity_id}", response_class=HTMLResponse)
+async def biological_edit(request: Request, entity_id: int, db: AsyncSession = Depends(get_db)):
+    """Карточка объекта: просмотр и управление связанными ресурсами"""
+    if not request.session.get("user_id"):
+        return RedirectResponse(url="/login")
+        
+    bot_online = await is_bot_online_redis()
+    
+    result = await db.execute(select(BiologicalEntity).where(BiologicalEntity.id == entity_id))
+    entity = result.scalars().first()
+    
+    if not entity:
+        raise HTTPException(status_code=404, detail="Объект не найден")
+
+    # ИСПРАВЛЕНО: Теперь ищем от текста (source) к объекту (target)
+    text_query = (
+        select(TextContent)
+        .join(EntityRelation, (EntityRelation.source_id == TextContent.id) & (EntityRelation.source_type == 'text_content'))
+        .where((EntityRelation.target_id == entity_id) & (EntityRelation.target_type == 'biological_entity'))
+    )
+    texts = (await db.execute(text_query)).scalars().all()
+
+    # ИСПРАВЛЕНО: Теперь ищем от картинки (source) к объекту (target)
+    image_query = (
+        select(ImageContent, EntityIdentifier.file_path)
+        .join(EntityRelation, (EntityRelation.source_id == ImageContent.id) & (EntityRelation.source_type == 'image_content'))
+        .outerjoin(EntityIdentifierLink, (EntityIdentifierLink.entity_id == ImageContent.id) & (EntityIdentifierLink.entity_type == 'image_content'))
+        .outerjoin(EntityIdentifier, EntityIdentifier.id == EntityIdentifierLink.identifier_id)
+        .where((EntityRelation.target_id == entity_id) & (EntityRelation.target_type == 'biological_entity'))
+    )
+    images_result = await db.execute(image_query)
+    
+    # Формируем удобный список словарей для шаблона: [{"data": ImageContent, "url": "https..."}]
+    images =[{"data": img, "url": url} for img, url in images_result.all()]
+
+    return templates.TemplateResponse("biological_edit.html", {
+        "request": request, 
+        "active_page": "biological", 
+        "bot_online": bot_online, 
+        "entity": entity,
+        "texts": texts,
+        "images": images # Передаем наш новый список
+    })
+
+@app.post("/biological/{entity_id}/add_image")
+async def biological_add_image(
+    request: Request,
+    entity_id: int,
+    title: str = Form(...),
+    image_url: str = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Добавление изображения с сохранением названий объекта в entity_identifier
+    """
+    if not request.session.get("user_id"):
+        return RedirectResponse(url="/login")
+        
+    # 1. Сначала достаем информацию об объекте, чтобы узнать его названия
+    result = await db.execute(select(BiologicalEntity).where(BiologicalEntity.id == entity_id))
+    entity = result.scalars().first()
+    
+    if not entity:
+        raise HTTPException(status_code=404, detail="Объект не найден")
+
+    # 2. Создаем ImageContent
+    new_image = ImageContent(
+        title=title,
+        description="Добавлено через админ-панель",
+        feature_data={"source": "Admin Panel"} 
+    )
+    db.add(new_image)
+    await db.flush() 
+    
+    # 3. Привязываем картинку к биологическому объекту (relation)
+    relation = EntityRelation(
+        source_id=new_image.id,
+        source_type="image_content",
+        target_id=entity_id,
+        target_type="biological_entity",
+        relation_type="изображение объекта"
+    )
+    db.add(relation)
+
+    # 4. Создаем запись в entity_identifier
+    # ИСПОЛЬЗУЕМ ДАННЫЕ ИЗ entity, КОТОРЫЕ ДОСТАЛИ ВЫШЕ
+    new_identifier = EntityIdentifier(
+        file_path=image_url,
+        name_ru=entity.common_name_ru,    # Название из карточки объекта
+        name_latin=entity.scientific_name # Латынь из карточки объекта
+    )
+    db.add(new_identifier)
+    await db.flush() 
+
+    # 5. Связываем картинку с её новым идентификатором
+    identifier_link = EntityIdentifierLink(
+        entity_id=new_image.id,
+        entity_type="image_content",
+        identifier_id=new_identifier.id
+    )
+    db.add(identifier_link)
+
+    await db.commit() 
+    
+    return RedirectResponse(url=f"/biological/{entity_id}", status_code=303)
+
+@app.post("/resource/delete/image/{image_id}")
+async def delete_image_resource(
+    request: Request,
+    image_id: int,
+    entity_id: int = Form(...), # Чтобы знать, куда вернуться
+    db: AsyncSession = Depends(get_db)
+):
+    if not request.session.get("user_id"):
+        return RedirectResponse(url="/login")
+
+    # 1. Удаляем связи из entity_relation
+    await db.execute(delete(EntityRelation).where(
+        (EntityRelation.source_id == image_id) & (EntityRelation.source_type == 'image_content')
+    ))
+
+    # 2. Находим и удаляем идентификаторы (ссылки)
+    # Сначала найдем ID идентификатора через линк
+    link_result = await db.execute(select(EntityIdentifierLink).where(
+        (EntityIdentifierLink.entity_id == image_id) & (EntityIdentifierLink.entity_type == 'image_content')
+    ))
+    links = link_result.scalars().all()
+    
+    for link in links:
+        await db.execute(delete(EntityIdentifier).where(EntityIdentifier.id == link.identifier_id))
+    
+    # 3. Удаляем сами линки
+    await db.execute(delete(EntityIdentifierLink).where(
+        (EntityIdentifierLink.entity_id == image_id) & (EntityIdentifierLink.entity_type == 'image_content')
+    ))
+
+    # 4. Удаляем саму запись ImageContent
+    await db.execute(delete(ImageContent).where(ImageContent.id == image_id))
+
+    await db.commit()
+    return RedirectResponse(url=f"/biological/{entity_id}", status_code=303)
+
+@app.post("/resource/delete/text/{text_id}")
+async def delete_text_modality(
+    request: Request,
+    text_id: int,
+    entity_id: int = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    if not request.session.get("user_id"):
+        return RedirectResponse(url="/login")
+
+    # 1. Удаляем связь из entity_relation (разрываем связку Ресурса)
+    await db.execute(delete(EntityRelation).where(
+        (EntityRelation.source_id == text_id) & (EntityRelation.source_type == 'text_content')
+    ))
+
+    # 2. Удаляем саму текстовую модальность из text_content
+    await db.execute(delete(TextContent).where(TextContent.id == text_id))
+
+    await db.commit()
+    return RedirectResponse(url=f"/biological/{entity_id}", status_code=303)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

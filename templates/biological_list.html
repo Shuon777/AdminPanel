@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Флора и Фауна{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+    <p style="color: var(--text-secondary); font-size: 1.1rem; margin: 0; font-weight: 500;">Управление биологическими объектами базы знаний</p>
+    <a href="/admin/biological/new" class="btn-stats" style="background: #10b981; box-shadow: 0 4px 6px rgba(16, 185, 129, 0.2);">
+        <i class="bi bi-plus-lg me-2"></i> Добавить ресурс
+    </a>
+</div>
+
+<div class="card">
+    <table class="table">
+        <thead>
+            <tr>
+                <th style="width: 120px;">ID</th>
+                <th>Название (РУС)</th>
+                <th>Название (ЛАТ)</th>
+                <th>Категория</th>
+                <th>Статус</th>
+                <th style="width: 140px; text-align: right;">Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entity in entities %}
+            <tr>
+                <td style="color: var(--text-secondary); font-weight: bold;">#{{ entity.id }}</td>
+                <td style="font-weight: 700; color: var(--text-primary);">{{ entity.common_name_ru }}</td>
+                <td style="font-style: italic; color: var(--text-secondary);">{{ entity.scientific_name or '—' }}</td>
+                <td>
+                    {% if entity.type == 'Flora' or entity.type == 'Объект флоры' %}
+                        <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3 py-2">🌿 Флора</span>
+                    {% else %}
+                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-3 py-2">🐾 Фауна</span>
+                    {% endif %}
+                </td>
+                <td>{{ entity.status or '—' }}</td>
+                <td class="col-action" style="white-space: nowrap;">
+                    <a href="/admin/biological/{{ entity.id }}" class="btn-details" style="text-decoration: none; display: inline-block;">Открыть</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="6" style="text-align: center; padding: 40px; color: var(--text-secondary);">
+                    <i class="bi bi-inbox fs-1 mb-2 d-block"></i>
+                    База данных пуста. Добавьте первый биологический объект!
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

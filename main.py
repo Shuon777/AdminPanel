@@ -2,6 +2,10 @@ import os
 import httpx
 import uvicorn
 import requests
+import folium
+from shapely import wkb
+import json
+from sqlalchemy import func
 
 from fastapi import FastAPI, Request, Depends, Body, Form, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -15,7 +19,7 @@ from urllib.parse import urlparse
 from datetime import datetime, timedelta, timezone
 
 from database import get_db
-from models import ErrorLog, BiologicalEntity, TextContent, ImageContent, EntityRelation, EntityIdentifier, EntityIdentifierLink
+from models import ErrorLog, BiologicalEntity, TextContent, ImageContent, EntityRelation, EntityIdentifier, EntityIdentifierLink, GeographicalEntity, EntityGeo, MapContent
 from heartbeat import BotHeartbeat
 from dotenv import load_dotenv
 
@@ -325,13 +329,43 @@ async def biological_edit(request: Request, entity_id: int, db: AsyncSession = D
     # Формируем удобный список словарей для шаблона: [{"data": ImageContent, "url": "https..."}]
     images =[{"data": img, "url": url} for img, url in images_result.all()]
 
+    geo_links_query = (
+        select(EntityGeo)
+        .where((EntityGeo.entity_id == entity_id) & (EntityGeo.entity_type == 'biological_entity'))
+    )
+    links = (await db.execute(geo_links_query)).scalars().all()
+    
+    locations = []
+
+    for link in links:
+        geo_id = link.geographical_entity_id
+
+        # 1. Пытаемся найти географическую сущность (для названия)
+        geo_res = await db.execute(select(GeographicalEntity).where(GeographicalEntity.id == geo_id))
+        geo_obj = geo_res.scalars().first()
+        
+        # 2. Пытаемся найти карту (для геометрии)
+        map_res = await db.execute(select(MapContent).where(MapContent.id == geo_id))
+        map_obj = map_res.scalars().first()
+
+        if geo_obj or map_obj:
+            location_item = {
+                "name_ru": geo_obj.name_ru if geo_obj else (map_obj.title if map_obj else "Без названия"),
+                "type": geo_obj.type if geo_obj else "Карта",
+                "is_map": bool(map_obj),
+            }
+            if map_obj:
+                location_item["map_id"] = map_obj.id   # для загрузки карты
+            locations.append(location_item)
+            
     return templates.TemplateResponse("biological_edit.html", {
         "request": request, 
         "active_page": "biological", 
         "bot_online": bot_online, 
         "entity": entity,
         "texts": texts,
-        "images": images # Передаем наш новый список
+        "images": images,
+        "locations": locations
     })
 
 @app.post("/biological/{entity_id}/add_image")
@@ -452,6 +486,31 @@ async def delete_text_modality(
 
     await db.commit()
     return RedirectResponse(url=f"/biological/{entity_id}", status_code=303)
+
+@app.post("/biological/get-map-html")
+async def get_map_html(
+    data: dict = Body(...),
+    db: AsyncSession = Depends(get_db)
+):
+    map_id = data.get("map_id")
+    
+    result = await db.execute(select(MapContent).where(MapContent.id == map_id))
+    map_obj = result.scalars().first()
+    
+    if not map_obj:
+        return {"html": "<p>Карта не найдена</p>"}
+
+    # Преобразуем геометрию в GeoJSON (если поле geometry — WKBElement)
+    geojson_data = await db.scalar(select(func.ST_AsGeoJSON(map_obj.geometry)))
+    if not geojson_data:
+        return {"html": "<p>Геометрия отсутствует</p>"}
+    
+    geometry_geojson = json.loads(geojson_data)
+    
+    m = folium.Map(location=[53.2, 107.3], zoom_start=9, tiles="OpenStreetMap")
+    folium.GeoJson(geometry_geojson).add_to(m)
+    
+    return {"html": m._repr_html_()}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

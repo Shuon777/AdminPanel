@@ -3,6 +3,19 @@
 {% block title %}Карточка: {{ entity.common_name_ru }}{% endblock %}
 
 {% block content %}
+<style>
+    /* Чтобы карта занимала всю модалку */
+    #mapModalBody {
+        padding: 0;
+        overflow: hidden;
+    }
+    #mapModalBody iframe,
+    #mapModalBody .folium-map,
+    #mapModalBody > div {
+        width: 100% !important;
+        height: 100% !important;
+    }
+</style>
 <div class="mb-4">
     <a href="/admin/biological" class="text-decoration-none text-secondary fw-bold">
         <i class="bi bi-arrow-left"></i> Назад к списку
@@ -12,10 +25,15 @@
 <div class="row g-4">
     <!-- Левая колонка: Информация об объекте -->
     <div class="col-lg-4">
-        <div class="card shadow-sm p-4" style="border-radius: 16px;">
+        <div class="card shadow-sm p-4 border-0" style="border-radius: 16px;">
             <div class="d-flex justify-content-between align-items-start mb-3">
                 <span class="badge bg-primary bg-opacity-10 text-primary px-3 py-2 rounded-pill">
-                    {{ '🌿 Флора' if entity.type == 'Объект флоры' else '🐾 Фауна' }}
+                    {% set e_type = entity.type|lower if entity.type else '' %}
+                    {% if 'flora' in e_type or 'флор' in e_type or 'растен' in e_type %}
+                        🌿 Флора
+                    {% else %}
+                        🐾 Фауна
+                    {% endif %}
                 </span>
                 <span class="text-muted fw-bold small">ID: {{ entity.id }}</span>
             </div>
@@ -39,9 +57,9 @@
         </div>
     </div>
 
-    <!-- Правая колонка: Привязанные ресурсы (Модальности) -->
+    <!-- Правая колонка: Модальности (Ресурсы) -->
     <div class="col-lg-8">
-        <div class="card shadow-sm" style="border-radius: 16px;">
+        <div class="card shadow-sm border-0" style="border-radius: 16px;">
             <div class="card-header bg-white p-3 border-bottom">
                 <ul class="nav nav-tabs card-header-tabs" role="tablist">
                     <li class="nav-item">
@@ -54,13 +72,19 @@
                             🖼️ Изображения ({{ images|length }})
                         </button>
                     </li>
+                    <li class="nav-item">
+                        <button class="nav-link fw-bold text-dark" data-bs-toggle="tab" data-bs-target="#geo">
+                            📍 Места обитания ({{ locations|length }})
+                        </button>
+                    </li>
                 </ul>
             </div>
             
             <div class="card-body p-4 tab-content">
+                
                 <!-- Вкладка Текстов -->
                 <div class="tab-pane fade show active" id="texts">
-                    <button class="btn btn-primary fw-bold mb-4" data-bs-toggle="modal" data-bs-target="#addTextModal" style="border-radius: 10px;">
+                    <button class="btn btn-primary fw-bold mb-4 shadow-sm" data-bs-toggle="modal" data-bs-target="#addTextModal" style="border-radius: 10px;">
                         <i class="bi bi-plus-lg"></i> Добавить текстовый ресурс
                     </button>
                     
@@ -69,82 +93,102 @@
                         <div class="p-3 border rounded-3 bg-light shadow-sm">
                             <div class="d-flex justify-content-between align-items-start mb-2">
                                 <div>
-                                    <h6 class="fw-bold mb-0 text-primary">{{ t.title or 'Без заголовка' }}</h6>
-                                    <span class="text-muted" style="font-size: 0.75rem;">Text ID: {{ t.id }}</span>
+                                    <h6 class="fw-bold mb-1 text-dark">{{ t.title or 'Без заголовка' }}</h6>
+                                    <div class="d-flex gap-2 mb-2">
+                                        {% if t.content %}<span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25" style="font-size: 0.7rem;"><i class="bi bi-justify-left"></i> Обычный текст</span>{% endif %}
+                                        {% if t.structured_data %}<span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25" style="font-size: 0.7rem;"><i class="bi bi-braces"></i> JSON</span>{% endif %}
+                                    </div>
                                 </div>
                                 <div class="d-flex gap-2">
-                                    <!-- Кнопка прочитать полностью -->
-                                    <button class="btn btn-sm btn-outline-primary border-0" 
-                                            data-bs-toggle="modal" 
-                                            data-bs-target="#viewTextModal{{ t.id }}">
-                                        <i class="bi bi-eye"></i>
-                                    </button>
-                                    
-                                    <!-- Кнопка удаления -->
+                                    <button class="btn btn-sm btn-outline-primary border-0" data-bs-toggle="modal" data-bs-target="#viewTextModal{{ t.id }}"><i class="bi bi-eye"></i></button>
                                     <form action="/admin/resource/delete/text/{{ t.id }}" method="post" onsubmit="return confirm('Удалить эту текстовую модальность?')">
                                         <input type="hidden" name="entity_id" value="{{ entity.id }}">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger border-0">
-                                            <i class="bi bi-trash3"></i>
-                                        </button>
+                                        <button type="submit" class="btn btn-sm btn-outline-danger border-0"><i class="bi bi-trash3"></i></button>
                                     </form>
                                 </div>
                             </div>
                             <p class="mb-0 text-secondary" style="font-size: 0.9rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
                                 {{ (t.content or '') }}
                             </p>
+                        </div>
 
-                            <!-- Модальное окно для чтения ПОЛНОГО текста -->
-                            <div class="modal fade" id="viewTextModal{{ t.id }}" tabindex="-1">
-                                <div class="modal-dialog modal-dialog-centered modal-lg">
-                                    <div class="modal-content" style="border-radius: 20px;">
-                                        <div class="modal-header border-bottom-0 px-4 pt-4">
-                                            <h5 class="fw-bold text-primary">{{ t.title or 'Просмотр текста' }}</h5>
-                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        <!-- Модалка текста -->
+                        <div class="modal fade" id="viewTextModal{{ t.id }}" tabindex="-1">
+                            <div class="modal-dialog modal-dialog-centered modal-lg">
+                                <div class="modal-content" style="border-radius: 20px;">
+                                    <div class="modal-header border-bottom-0 px-4 pt-4">
+                                        <h5 class="fw-bold text-primary">{{ t.title }}</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body px-4 pb-4">
+                                        {% if t.content %}<div class="p-3 bg-white border rounded-3 mb-4" style="white-space: pre-wrap; max-height: 40vh; overflow-y: auto;">{{ t.content }}</div>{% endif %}
+                                        {% if t.structured_data %}
+                                        <div class="p-4 bg-light border rounded-3" style="max-height: 40vh; overflow-y: auto;">
+                                            <h6 class="fw-bold text-info mb-3">Структурированные данные</h6>
+                                            {% for key, val in t.structured_data.items() %}
+                                                <div class="mb-2"><strong>{{ key|capitalize }}:</strong> {{ val }}</div>
+                                            {% endfor %}
                                         </div>
-                                        <div class="modal-body px-4 pb-4">
-                                            <div class="p-3 bg-white border rounded-3" style="white-space: pre-wrap; line-height: 1.6; max-height: 60vh; overflow-y: auto;">{{ t.content }}</div>
-                                        </div>
+                                        {% endif %}
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        {% else %}
-                        <div class="text-center p-5 text-muted">К этому объекту пока не привязано текстовых модальностей.</div>
                         {% endfor %}
                     </div>
                 </div>
 
                 <!-- Вкладка Изображений -->
                 <div class="tab-pane fade" id="images">
-                    <button class="btn btn-primary fw-bold mb-4" data-bs-toggle="modal" data-bs-target="#addImageModal" style="border-radius: 10px;">
+                    <button class="btn btn-primary fw-bold mb-4 shadow-sm" data-bs-toggle="modal" data-bs-target="#addImageModal" style="border-radius: 10px;">
                         <i class="bi bi-cloud-arrow-up"></i> Прикрепить изображение
                     </button>
-                    
                     <div class="row g-3">
                         {% for img_obj in images %}
                         <div class="col-md-4">
-                            <div class="card h-100 shadow-sm border-0">
-                                <!-- Выводим url из идентификатора -->
-                                <img src="{{ img_obj.url }}" class="card-img-top" alt="{{ img_obj.data.title }}" 
-                                     style="height: 180px; object-fit: cover; border-radius: 10px 10px 0 0;"
-                                     onerror="this.src='https://placehold.co/600x400?text=Ошибка+загрузки'">
-                                <div class="card-body p-3">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <h6 class="card-title fw-bold text-dark small mb-0">{{ img_obj.data.title }}</h6>
-                                        <!-- КНОПКА УДАЛЕНИЯ -->
-                                        <form action="/admin/resource/delete/image/{{ img_obj.data.id }}" method="post" onsubmit="return confirm('Удалить это изображение?')">
-                                            <input type="hidden" name="entity_id" value="{{ entity.id }}">
-                                            <button type="submit" class="btn btn-link text-danger p-0">
-                                                <i class="bi bi-trash3"></i>
-                                            </button>
-                                        </form>
+                            <div class="card h-100 shadow-sm border-0 position-relative">
+                                <form action="/admin/resource/delete/image/{{ img_obj.data.id }}" method="post" onsubmit="return confirm('Удалить?')" class="position-absolute top-0 end-0 m-2">
+                                    <input type="hidden" name="entity_id" value="{{ entity.id }}">
+                                    <button type="submit" class="btn btn-sm btn-danger shadow-sm rounded-circle" style="width: 32px; height: 32px; padding: 0;"><i class="bi bi-trash3"></i></button>
+                                </form>
+                                <img src="{{ img_obj.url }}" class="card-img-top" style="height: 160px; object-fit: cover; border-radius: 10px 10px 0 0;" onerror="this.src='https://placehold.co/600x400?text=Ошибка+загрузки'">
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Вкладка Географии -->
+                <div class="tab-pane fade" id="geo">
+                    <button class="btn btn-primary fw-bold mb-4 shadow-sm" style="border-radius: 10px;" onclick="alert('Форма привязки геолокации в разработке!')">
+                        <i class="bi bi-geo-alt"></i> Привязать новую локацию
+                    </button>
+                    
+                    <div class="row g-3">
+                        {% for loc in locations %}
+                        <div class="col-md-6">
+                            <div class="p-3 border rounded-3 bg-white shadow-sm d-flex justify-content-between align-items-center">
+                                <div class="d-flex align-items-center gap-3">
+                                    <i class="bi bi-geo-alt-fill text-danger fs-4"></i>
+                                    <div>
+                                        <h6 class="fw-bold mb-0 text-dark">{{ loc.name_ru }}</h6>
+                                        <span class="badge bg-light text-secondary border">{{ loc.type or 'Локация' }}</span>
                                     </div>
-                                    <p class="card-text text-muted" style="font-size: 0.75rem;">ID: {{ img_obj.data.id }}</p>
                                 </div>
+                                {% if loc.is_map %}
+                                <button class="btn btn-outline-primary btn-sm" onclick="showMap({{ loc.map_id }}, '{{ loc.name_ru }}')">
+                                    <i class="bi bi-map"></i> Показать карту
+                                </button>
+                                {% else %}
+                                <span class="text-muted small">(нет карты)</span>
+                                {% endif %}
                             </div>
                         </div>
                         {% else %}
-                        <div class="col-12 text-center p-5 text-muted">Изображений пока нет.</div>
+                        <div class="col-12 text-center p-5 text-muted">
+                            <i class="bi bi-map fs-1 d-block mb-3 text-light"></i>
+                            Географические привязки отсутствуют.
+                        </div>
                         {% endfor %}
                     </div>
                 </div>
@@ -153,59 +197,49 @@
     </div>
 </div>
 
-<!-- Модальное окно добавления текста -->
-<div class="modal fade" id="addTextModal" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content" style="border-radius: 20px;">
-            <div class="modal-header px-4 py-3">
-                <h5 class="modal-title fw-bold">Привязать новый текст</h5>
+<!-- Модалка карты -->
+<div class="modal fade" id="mapModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="mapModalTitle">Карта</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form action="/admin/biological/{{ entity.id }}/add_text" method="post">
-                <div class="modal-body p-4">
-                    <div class="mb-3">
-                        <label class="form-label fw-bold text-secondary small">ЗАГОЛОВОК СТАТЬИ</label>
-                        <input type="text" class="form-control" name="title" required placeholder="Например: Среда обитания и повадки">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-bold text-secondary small">ПОЛНЫЙ ТЕКСТ</label>
-                        <textarea class="form-control" name="content" rows="8" required placeholder="Введите детальную информацию..."></textarea>
-                    </div>
-                </div>
-                <div class="modal-footer bg-light px-4 py-3 border-top-0 rounded-bottom-4">
-                    <button type="button" class="btn btn-light fw-bold" data-bs-dismiss="modal">Отмена</button>
-                    <button type="submit" class="btn btn-primary fw-bold px-4">Сохранить ресурс</button>
-                </div>
-            </form>
+            <div class="modal-body" id="mapModalBody" style="height: 600px;">
+                <!-- Сюда будет вставлена карта -->
+            </div>
         </div>
     </div>
 </div>
-<!-- Модальное окно добавления изображения -->
-<div class="modal fade" id="addImageModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content" style="border-radius: 20px;">
-            <div class="modal-header px-4 py-3">
-                <h5 class="modal-title fw-bold">Привязать изображение</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form action="/admin/biological/{{ entity.id }}/add_image" method="post">
-                <div class="modal-body p-4">
-                    <div class="mb-3">
-                        <label class="form-label fw-bold text-secondary small">НАЗВАНИЕ / ПОДПИСЬ</label>
-                        <input type="text" class="form-control" name="title" required placeholder="Например: Фотография в летний период">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-bold text-secondary small">ССЫЛКА НА ФОТО (URL)</label>
-                        <input type="url" class="form-control" name="image_url" required placeholder="https://example.com/nerpa.jpg">
-                        <div class="form-text text-muted">В MVP вставляем пока ссылку на файл.</div>
-                    </div>
-                </div>
-                <div class="modal-footer bg-light px-4 py-3 border-top-0 rounded-bottom-4">
-                    <button type="button" class="btn btn-light fw-bold" data-bs-dismiss="modal">Отмена</button>
-                    <button type="submit" class="btn btn-primary fw-bold px-4">Сохранить фото</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
+
+<script>
+async function showMap(mapId, locationName) {
+    const modalTitle = document.getElementById('mapModalTitle');
+    const modalBody = document.getElementById('mapModalBody');
+    
+    modalTitle.innerText = "Карта: " + locationName;
+    modalBody.innerHTML = '<div class="text-center mt-5"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">Загрузка карты...</p></div>';
+    
+    // Показываем модалку сразу, чтобы пользователь видел процесс загрузки
+    const mapModal = new bootstrap.Modal(document.getElementById('mapModal'));
+    mapModal.show();
+    
+    try {
+        const response = await fetch('/admin/biological/get-map-html', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ map_id: mapId })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error ${response.status}`);
+        }
+        
+        const data = await response.json();
+        modalBody.innerHTML = data.html;  // ожидается HTML-фрагмент карты
+    } catch (error) {
+        modalBody.innerHTML = `<div class="alert alert-danger m-3">Ошибка загрузки карты: ${error.message}</div>`;
+    }
+}
+</script>
 {% endblock %}

@@ -94,3 +94,30 @@ class EntityIdentifierLink(Base):
     entity_id = Column(Integer, primary_key=True)
     entity_type = Column(String(30), primary_key=True)
     identifier_id = Column(Integer, primary_key=True)
+
+# ==========================================
+# ГЕОГРАФИЯ И ЛОКАЦИИ
+# ==========================================
+
+class GeographicalEntity(Base):
+    __tablename__ = "geographical_entity"
+    id = Column(Integer, primary_key=True, index=True)
+    name_ru = Column(String(500), nullable=False)
+    description = Column(Text)
+    type = Column(String(100))
+    feature_data = Column(JSONB)
+
+class EntityGeo(Base):
+    __tablename__ = "entity_geo"
+    entity_id = Column(Integer, primary_key=True)
+    entity_type = Column(String(30), primary_key=True)
+    geographical_entity_id = Column(Integer, primary_key=True)
+    
+from geoalchemy2 import Geometry
+class MapContent(Base):
+    __tablename__ = "map_content"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(500), nullable=False)
+    description = Column(Text)
+    geometry = Column(Geometry('GEOMETRY', srid=4326), nullable=False)
+    feature_data = Column(JSONB)

@@ -1,0 +1,52 @@
+{% macro render_feature_value(value) %}
+    {% if value is mapping %}
+        <ul class="feature-object">
+        {% for k, v in value.items() %}
+            <li><strong>{{ k|replace('_', ' ')|capitalize }}:</strong> {{ render_feature_value(v) }}</li>
+        {% endfor %}
+        </ul>
+    {% elif value is iterable and value is not string %}
+        <ul class="feature-array">
+        {% for item in value %}
+            <li>{{ render_feature_value(item) }}</li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <span class="feature-value">{{ value if value is not none else '—' }}</span>
+    {% endif %}
+{% endmacro %}
+
+{% macro feature_modal(modal_id, title, feature_data) %}
+<div class="modal fade" id="{{ modal_id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">{{ title }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <ul class="nav nav-tabs mb-3" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#{{ modal_id }}_summary">Сводка</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#{{ modal_id }}_json">JSON</button>
+                    </li>
+                </ul>
+                <div class="tab-content">
+                    <div class="tab-pane active" id="{{ modal_id }}_summary">
+                        {% if feature_data %}
+                            {{ render_feature_value(feature_data) }}
+                        {% else %}
+                            <p class="text-muted">Нет данных</p>
+                        {% endif %}
+                    </div>
+                    <div class="tab-pane" id="{{ modal_id }}_json">
+                        <pre class="bg-light p-3 rounded" style="max-height: 400px; overflow: auto;">{{ feature_data | tojson(indent=2) if feature_data else '{}' }}</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endmacro %}

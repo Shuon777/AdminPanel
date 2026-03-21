@@ -339,25 +339,35 @@ async def biological_edit(request: Request, entity_id: int, db: AsyncSession = D
 
     for link in links:
         geo_id = link.geographical_entity_id
-
-        # 1. Пытаемся найти географическую сущность (для названия)
         geo_res = await db.execute(select(GeographicalEntity).where(GeographicalEntity.id == geo_id))
         geo_obj = geo_res.scalars().first()
-        
-        # 2. Пытаемся найти карту (для геометрии)
-        map_res = await db.execute(select(MapContent).where(MapContent.id == geo_id))
-        map_obj = map_res.scalars().first()
+        if not geo_obj:
+            continue
 
-        if geo_obj or map_obj:
-            location_item = {
-                "name_ru": geo_obj.name_ru if geo_obj else (map_obj.title if map_obj else "Без названия"),
-                "type": geo_obj.type if geo_obj else "Карта",
-                "is_map": bool(map_obj),
-            }
+        location_item = {
+            "name_ru": geo_obj.name_ru,
+            "type": geo_obj.type or "Локация",
+            "is_map": False,
+            "geo_id": geo_id,
+            "feature_data": geo_obj.feature_data  # добавляем
+        }
+
+        # Проверяем карту (как раньше)
+        map_link_query = select(EntityGeo).where(
+            EntityGeo.entity_type == 'map_content',
+            EntityGeo.geographical_entity_id == geo_id
+        )
+        map_link = (await db.execute(map_link_query)).scalars().first()
+        if map_link:
+            map_res = await db.execute(select(MapContent).where(MapContent.id == map_link.entity_id))
+            map_obj = map_res.scalars().first()
             if map_obj:
-                location_item["map_id"] = map_obj.id   # для загрузки карты
-            locations.append(location_item)
-            
+                location_item["is_map"] = True
+                location_item["map_id"] = map_obj.id
+                # Если у карты тоже есть feature_data, можно добавить:
+                # location_item["map_feature_data"] = map_obj.feature_data
+        locations.append(location_item)
+
     return templates.TemplateResponse("biological_edit.html", {
         "request": request, 
         "active_page": "biological", 
@@ -488,28 +498,21 @@ async def delete_text_modality(
     return RedirectResponse(url=f"/biological/{entity_id}", status_code=303)
 
 @app.post("/biological/get-map-html")
-async def get_map_html(
-    data: dict = Body(...),
-    db: AsyncSession = Depends(get_db)
-):
+async def get_map_html(data: dict = Body(...), db: AsyncSession = Depends(get_db)):
     map_id = data.get("map_id")
-    
     result = await db.execute(select(MapContent).where(MapContent.id == map_id))
     map_obj = result.scalars().first()
-    
     if not map_obj:
         return {"html": "<p>Карта не найдена</p>"}
-
-    # Преобразуем геометрию в GeoJSON (если поле geometry — WKBElement)
+    
+    # Преобразуем PostGIS геометрию в GeoJSON
     geojson_data = await db.scalar(select(func.ST_AsGeoJSON(map_obj.geometry)))
     if not geojson_data:
         return {"html": "<p>Геометрия отсутствует</p>"}
     
     geometry_geojson = json.loads(geojson_data)
-    
     m = folium.Map(location=[53.2, 107.3], zoom_start=9, tiles="OpenStreetMap")
     folium.GeoJson(geometry_geojson).add_to(m)
-    
     return {"html": m._repr_html_()}
 
 if __name__ == "__main__":
